@@ -114,13 +114,12 @@ RUN mkdir -p /home/renderer/src \
 RUN mkdir -p /home/renderer/src \
   && cd /home/renderer/src \
   && git clone https://github.com/gravitystorm/openstreetmap-carto.git \
-  && git -C openstreetmap-carto checkout v4.23.0 \
+  && git -C openstreetmap-carto checkout v5.3.1 \
   && cd openstreetmap-carto \
   && rm -rf .git \
   && npm install -g carto@0.18.2 \
   && sed -i 's/dbname: "gis"/password: "$PGPASSWORD"\n    user: "$PGUSER"\n    host: "$PGHOST"\n    port: "$PGPORT"\n    dbname: "$PGDATABASE"/g' project.mml \
   && carto project.mml > mapnik.xml \
-  && scripts/get-shapefiles.py
 
 WORKDIR /home/renderer/src/openstreetmap-carto
 

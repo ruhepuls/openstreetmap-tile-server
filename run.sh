@@ -15,31 +15,21 @@ function setPostgresPassword() {
 if [ "$#" -ne 1 ]; then
     echo "usage: <import|run>"
     echo "commands:"
-    echo "    import: Set up the database and import /data.osm.pbf"
+    echo "    import: Import /data.osm.pbf"
     echo "    run: Runs Apache and renderd to serve tiles at /tile/{z}/{x}/{y}.png"
     echo "environment variables:"
     echo "    THREADS: defines number of threads used for importing / tile rendering"
     echo "    UPDATES: consecutive updates (enabled/disabled)"
+    echo "    PGPASS:  PostgreSQL Password"
+    echo "    PGUSER:  PostgreSQL Username"
+    echo "    PGHOST:  PostgreSQL Host"
+    echo "    PGPORT:  PostgreSQL PORT"
+    echo "    PGDB:    PostgreSQL Database"
     exit 1
 fi
 
 if [ "$1" = "import" ]; then
-    # Ensure that database directory is in right state
-    chown postgres:postgres -R /var/lib/postgresql
-    if [ ! -f /var/lib/postgresql/12/main/PG_VERSION ]; then
-        sudo -u postgres /usr/lib/postgresql/12/bin/pg_ctl -D /var/lib/postgresql/12/main/ initdb -o "--locale C.UTF-8"
-    fi
-
-    # Initialize PostgreSQL
-    createPostgresConfig
-    service postgresql start
-    sudo -u postgres createuser renderer
-    sudo -u postgres createdb -E UTF8 -O renderer gis
-    sudo -u postgres psql -d gis -c "CREATE EXTENSION postgis;"
-    sudo -u postgres psql -d gis -c "CREATE EXTENSION hstore;"
-    sudo -u postgres psql -d gis -c "ALTER TABLE geometry_columns OWNER TO renderer;"
-    sudo -u postgres psql -d gis -c "ALTER TABLE spatial_ref_sys OWNER TO renderer;"
-    setPostgresPassword
+  
 
     # Download Luxembourg as sample if no data is provided
     if [ ! -f /data.osm.pbf ] && [ -z "$DOWNLOAD_PBF" ]; then
@@ -64,28 +54,26 @@ if [ "$1" = "import" ]; then
         REPLICATION_TIMESTAMP=$(cat /var/lib/mod_tile/replication_timestamp.txt)
 
         # initial setup of osmosis workspace (for consecutive updates)
-        sudo -u renderer openstreetmap-tiles-update-expire $REPLICATION_TIMESTAMP
+        sudo -E -u renderer openstreetmap-tiles-update-expire $REPLICATION_TIMESTAMP
     fi
 
     # copy polygon file if available
     if [ -f /data.poly ]; then
-        sudo -u renderer cp /data.poly /var/lib/mod_tile/data.poly
+        sudo -E -u renderer cp /data.poly /var/lib/mod_tile/data.poly
     fi
 
     # Import data
-    sudo -u renderer osm2pgsql -d gis --create --slim -G --hstore --tag-transform-script /home/renderer/src/openstreetmap-carto/openstreetmap-carto.lua --number-processes ${THREADS:-4} -S /home/renderer/src/openstreetmap-carto/openstreetmap-carto.style /data.osm.pbf ${OSM2PGSQL_EXTRA_ARGS}
+    sudo -E -u renderer osm2pgsql --create --slim -G --hstore --tag-transform-script /home/renderer/src/openstreetmap-carto/openstreetmap-carto.lua --number-processes ${THREADS:-4} -S /home/renderer/src/openstreetmap-carto/openstreetmap-carto.style /data.osm.pbf ${OSM2PGSQL_EXTRA_ARGS}
 
     # Create indexes
-    sudo -u postgres psql -d gis -f indexes.sql
+    sudo -E -u renderer psql  -f indexes.sql
  
     #Import external data
     sudo chown -R renderer: /home/renderer/src
-    sudo -u renderer python3 /home/renderer/src/openstreetmap-carto/scripts/get-external-data.py -c /home/renderer/src/openstreetmap-carto/external-data.yml -D /home/renderer/src/openstreetmap-carto/data
+    sudo -u renderer python3 /home/renderer/src/openstreetmap-carto/scripts/get-external-data.py -c /home/renderer/src/openstreetmap-carto/external-data.yml -D /home/renderer/src/openstreetmap-carto/data -d $PGDB
 
     # Register that data has changed for mod_tile caching purposes
     touch /var/lib/mod_tile/planet-import-complete
-
-    service postgresql stop
 
     exit 0
 fi
@@ -94,26 +82,26 @@ if [ "$1" = "run" ]; then
     # Clean /tmp
     rm -rf /tmp/*
 
-    # Fix postgres data privileges
-    chown postgres:postgres /var/lib/postgresql -R
 
     # Configure Apache CORS
     if [ "$ALLOW_CORS" == "enabled" ] || [ "$ALLOW_CORS" == "1" ]; then
         echo "export APACHE_ARGUMENTS='-D ALLOW_CORS'" >> /etc/apache2/envvars
     fi
 
-    # Initialize PostgreSQL and Apache
-    createPostgresConfig
-    service postgresql start
-    service apache2 restart
-    setPostgresPassword
+    cp /home/renderer/src/openstreetmap-carto/mapnik.xml /home/renderer/src/openstreetmap-carto/mapnik_cpy.xml
+    envsubst '$PGPASSWORD $PGUSER $PGHOST $PGPORT $PGDATABASE' </home/renderer/src/openstreetmap-carto/mapnik_cpy.xml >/home/renderer/src/openstreetmap-carto/mapnik.xml
+
+    
 
     # Configure renderd threads
     sed -i -E "s/num_threads=[0-9]+/num_threads=${THREADS:-4}/g" /usr/local/etc/renderd.conf
 
     # start cron job to trigger consecutive updates
-    if [ "$UPDATES" = "enabled" ] || [ "$UPDATES" = "1" ]; then
-      /etc/init.d/cron start
+    if [ "$UPDATES" = "enabled" ]; then
+        chown renderer /home/renderer/project_env.sh
+        chmod +x /home/renderer/project_env.sh
+        printenv | sed 's/^\(.*\)$/export \1/g' | grep -E "^export PG" >/home/renderer/project_env.sh
+        /etc/init.d/cron start
     fi
 
     # Run while handling docker stop's SIGTERM
@@ -126,7 +114,11 @@ if [ "$1" = "run" ]; then
     child=$!
     wait "$child"
 
-    service postgresql stop
+    
+
+if [ "$1" = "debug" ]; then
+    cp /home/renderer/src/openstreetmap-carto/mapnik.xml /home/renderer/src/openstreetmap-carto/mapnik_cpy.xml
+    envsubst '$PGPASSWORD $PGUSER $PGHOST $PGPORT $PGDATABASE' </home/renderer/src/openstreetmap-carto/mapnik_cpy.xml >/home/renderer/src/openstreetmap-carto/mapnik.xml
 
     exit 0
 fi

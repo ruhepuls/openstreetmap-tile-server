@@ -59,6 +59,7 @@ RUN apt-get install -y --no-install-recommends \
   osmium-tool \
   osmosis \  
   protobuf-c-compiler \
+  python-is-python3 \
   python3-mapnik \
   python3-lxml \
   python3-psycopg2 \

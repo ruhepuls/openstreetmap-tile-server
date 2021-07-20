@@ -76,7 +76,7 @@ RUN apt-get install -y --no-install-recommends \
 && rm -rf /var/lib/{apt,dpkg,cache,log}/
 
 # Install python libraries
-RUN pip3 install requests \ 
+RUN pip3 install requests \
  && pip3 install pyyaml
 
 # Set up renderer user
@@ -160,7 +160,6 @@ RUN mkdir -p /home/renderer/src \
 
 # Start running
 COPY run.sh /
-COPY indexes.sql /
 ENTRYPOINT ["/run.sh"]
 CMD []
 

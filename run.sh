@@ -101,7 +101,7 @@ if [ "$1" = "run" ]; then
         chown renderer /home/renderer/project_env.sh
         chmod +x /home/renderer/project_env.sh
         declare | sed 's/^\(.*\)$/export \1/g' | grep -E "^export PG|^export OSM"  >/home/renderer/project_env.sh
-        echo 'export THREADS=${THREADS:-4}' >>  /home/renderer/project_env.sh
+        echo "export THREADS=${THREADS:-4}" >>  /home/renderer/project_env.sh
         /etc/init.d/cron start
     fi
 
